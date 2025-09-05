@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Headmosh Campfire</title>
-  <meta name="description" content="A tiny, ephemeral, no‑likes social sketchbook. Posts fade. No followers. Just scraps." />
+  <title>Headmosh Campfire — Anti-Facebook</title>
+  <meta name="description" content="A tiny, ephemeral, no-likes social sketchbook. Posts fade. No followers. Just scraps." />
   <style>
     :root{
       --ink:#111; --muted:#666; --paper:#f7f5f1; --bg:#faf9f6; --accent:#0e9a6c;
@@ -44,9 +44,9 @@
 <body>
   <div class="wrap">
     <header>
-      <div class="logo">🪵🔥 Headmosh Campfire <span class="subtle">— anti‑Facebook</span></div>
-      <div class="pill" id="identityPill">🐺 <span id="alias">wolf‑guest</span> · <span id="room">local</span></div>
-      <div class="pill subtle">No likes · No followers · Posts fade</div>
+      <div class="logo">🪵🔥 Headmosh Campfire <span class="subtle">— anti-Facebook</span></div>
+      <div class="pill" id="identityPill">🐺 <span id="alias">wolf-guest</span> · <span id="room">local</span></div>
+      <div class="pill subtle" id="modePill">No likes · No followers · Posts fade</div>
     </header>
 
     <div class="grid cols" style="margin-top:18px">
@@ -69,7 +69,7 @@
             <option value="172800">48 hours</option>
           </select></span>
           <label class="subtle" style="display:inline-flex;align-items:center;gap:6px">
-            <input type="checkbox" id="singleFlame" /> single‑flame (replace my last post)
+            <input type="checkbox" id="singleFlame" /> single-flame (replace my last post)
           </label>
           <span class="subtle">Max feed size: <span id="maxSizeLabel">12</span></span>
         </div>
@@ -97,7 +97,7 @@
       <aside class="card" aria-label="about">
         <div style="display:grid;gap:10px">
           <div class="prompt">What is this?</div>
-          <div class="subtle">A tiny, ephemeral feed. No likes, no followers, no counters. Posts fade after a time‑to‑live. Be honest, be weird, move on.</div>
+          <div class="subtle">A tiny, ephemeral feed. No likes, no followers, no counters. Posts fade after a time-to-live. Be honest, be weird, move on.</div>
           <div class="chips">
             <span class="chip">ephemeral</span>
             <span class="chip">small circle</span>
@@ -106,7 +106,7 @@
           </div>
           <hr style="border:none;border-top:1px solid var(--border)">
           <div class="prompt">Room</div>
-          <div class="subtle">Use <b>#room-name</b> in the URL to switch rooms (local demo only). Example: <code>#studio</code></div>
+          <div class="subtle">Use <b>#room-name</b> in the URL to switch rooms. Example: <code>#studio</code></div>
           <div class="toolbar">
             <button id="randomRoom">Shuffle room</button>
             <button id="clearFeed" class="danger">Burn it all</button>
@@ -128,13 +128,16 @@
       <div class="feed" id="feed"></div>
     </section>
 
-    <div class="footer">Made with 🐺 + 🐱 · No tracking, local‑only demo. Bring your own backend later (Supabase/Firebase/WebRTC) if you want it shared beyond your device.</div>
+    <div class="footer">Made with 🐺 + 🐱 · Local-only by default. Add <b>?net</b> for live rooms (Supabase).</div>
   </div>
 
 <script>
 (function(){
-  // ------- Utilities -------
+  // ------- Mode flag -------
+  const NET_MODE = new URLSearchParams(location.search).has('net');
   const $ = sel => document.querySelector(sel);
+
+  // ------- Elements -------
   const aliasEl = $('#alias');
   const roomEl = $('#room');
   const feedEl = $('#feed');
@@ -149,6 +152,11 @@
   const imagePreviewWrap = $('#imagePreviewWrap');
   const imagePreview = $('#imagePreview');
   const fileInput = $('#file');
+  const postBtn = $('#postBtn');
+
+  if (NET_MODE) {
+    $('#modePill').textContent = 'Live rooms · No likes · No followers';
+  }
 
   const MAX_FEED = 12; // small circle cap (per room)
   $('#maxSizeLabel').textContent = MAX_FEED;
@@ -177,7 +185,7 @@
     return {emoji:e, name:`${n}-${Math.floor(Math.random()*999)}`};
   }
 
-  // Rotate alias daily (local)
+  // Rotate alias daily (local persistence)
   const ALIAS_KEY = 'campfire_alias_v1';
   function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
   let alias = JSON.parse(localStorage.getItem(ALIAS_KEY) || 'null');
@@ -195,7 +203,7 @@
   function loadFeed(){ try{return JSON.parse(sessionStorage.getItem(storageKey())||'[]')}catch{return[]} }
   function saveFeed(items){ sessionStorage.setItem(storageKey(), JSON.stringify(items)); }
 
-  function setRoomUI(){ roomEl.textContent = currentRoom(); render(); }
+  function setRoomUI(){ roomEl.textContent = currentRoom(); if(!NET_MODE) render(); }
   window.addEventListener('hashchange', setRoomUI);
   $('#randomRoom').onclick = () => {
     const r = ['studio','kitchen','bus','woods','gym','class','lake','garage','porch'];
@@ -203,7 +211,7 @@
   };
 
   // ------- Sketch tool -------
-  let drawing=false, ctx, scale;
+  let drawing=false, ctx;
   function resizeCanvas(){
     const rect = sketchCanvas.getBoundingClientRect();
     sketchCanvas.width = Math.floor(rect.width*2);
@@ -225,8 +233,7 @@
     const r = sketchCanvas.getBoundingClientRect();
     const x = (e.touches? e.touches[0].clientX : e.clientX) - r.left;
     const y = (e.touches? e.touches[0].clientY : e.clientY) - r.top;
-    // scale because we doubled pixel density
-    return {x:x*2, y:y*2};
+    return {x:x*2, y:y*2}; // account for 2x pixel density
   }
 
   $('#sketchToggle').onclick = ()=>{
@@ -253,15 +260,15 @@
     const url = await fileToDataURL(file); setImage(url);
   };
   document.addEventListener('paste', async (e)=>{
-    const item = [...(e.clipboardData?.items||[])].find(i=>i.type.startsWith('image/'));
+    const item = [...(e.clipboardData?.items||[])].find(i=>i.type?.startsWith('image/'));
     if(item){ const f = item.getAsFile(); const url = await fileToDataURL(f); setImage(url); }
   });
   function setImage(url){ imageDataUrl = url; imagePreview.src = url; imagePreviewWrap.style.display='block'; }
   $('#removeImage').onclick = ()=>{ imageDataUrl=null; imagePreviewWrap.style.display='none'; imagePreview.src=''; };
   function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(file); }); }
 
-  // ------- Posting -------
-  $('#postBtn').onclick = ()=>{
+  // ------- Local Posting/Render (disabled in NET_MODE) -------
+  function localPost(){
     const now = Date.now();
     const ttl = parseInt(ttlEl.value,10)*1000;
     const expiresAt = now + ttl;
@@ -270,7 +277,6 @@
     if(!text && !sketchUrl && !imageDataUrl){ alert('Write something, sketch, or add an image.'); return; }
 
     let items = loadFeed().filter(i=>i.expiresAt>now);
-    // single flame: remove last post by this alias
     if(singleFlameEl.checked){ items = items.filter(i=>i.alias.name!==alias.name); }
 
     const item = {
@@ -278,7 +284,6 @@
       alias, text, image:imageDataUrl, sketch: sketchUrl, createdAt: now, expiresAt
     };
     items.unshift(item);
-    // cap feed size
     if(items.length>MAX_FEED) items = items.slice(0,MAX_FEED);
     saveFeed(items);
 
@@ -288,18 +293,8 @@
     $('#removeImage').click();
 
     render();
-  };
+  }
 
-  $('#clearFeed').onclick = ()=>{ if(confirm('Burn the current room feed?')){ saveFeed([]); render(); } };
-  $('#exportBtn').onclick = ()=>{
-    const data = JSON.stringify(loadFeed(), null, 2);
-    const blob = new Blob([data], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=`campfire-${currentRoom()}.json`; a.click();
-    setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  };
-
-  // ------- Render -------
   function render(){
     const now = Date.now();
     let items = loadFeed().filter(i=>i.expiresAt>now);
@@ -343,77 +338,61 @@
     return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
   }
 
-  // tick: update fading labels, prune expired
-  setInterval(render, 30000);
+  // Expose helpers for net script
+  window.__campfire_utils__ = { timeAgo, escapeHtml, currentRoom, alias };
+
+  // Attach handlers depending on mode
+  if (!NET_MODE) {
+    postBtn.onclick = localPost;
+    setInterval(render, 30000); // occasional refresh for TTL
+  }
 
   // init
   promptEl.textContent = pickPrompt();
   setRoomUI();
+  if (!NET_MODE) render();
 })();
 </script>
-  
-<!-- ===== Optional: Supabase wiring (live shared rooms) =====
-     To enable, include supabase-js via CDN and set USE_SUPABASE=true below,
-     and fill in your project URL + anon key. See the SQL schema in the block comment. -->
+
+<!-- ===== Optional: Supabase wiring (live shared rooms, enable with ?net) =====
+     1) Include supabase-js via CDN (already below)
+     2) Paste your SUPABASE_URL and SUPABASE_ANON in this block
+     3) Run the SQL in the comment at the very bottom in Supabase's SQL editor
+-->
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script>
-/*
-SQL (run in Supabase SQL editor):
---------------------------------------------------
--- Rooms
-create table if not exists rooms (
-  id uuid primary key default gen_random_uuid(),
-  name text unique not null,
-  created_at timestamp with time zone default now()
-);
--- Posts (ephemeral)
-create table if not exists posts (
-  id uuid primary key default gen_random_uuid(),
-  room text not null references rooms(name) on delete cascade,
-  alias jsonb not null,
-  text text,
-  image_url text,
-  sketch_url text,
-  created_at timestamp with time zone default now(),
-  expires_at timestamp with time zone not null
-);
--- Helpful index for pruning
-create index if not exists posts_expires_idx on posts(expires_at);
--- RLS: public can read; inserts allowed; deletes only own via a simple token (room_secret) optional
-alter table rooms enable row level security;
-alter table posts enable row level security;
-create policy "Public read" on posts for select using (true);
-create policy "Public insert" on posts for insert with check (true);
-create policy "Public delete expired" on posts for delete using (expires_at <= now());
--- (For tighter control later, add per-room shared secrets or auth.)
-
--- Edge Function (optional) to prune hourly:
--- delete from posts where expires_at < now();
---------------------------------------------------
-*/
-
 (async function(){
-  const USE_SUPABASE = new URLSearchParams(location.search).has('net'); // add ?net to URL to enable
-  if(!USE_SUPABASE) return; // keep the local-only behavior unless ?net present
+  const NET_MODE = new URLSearchParams(location.search).has('net');
+  if(!NET_MODE) return;
 
+  const { timeAgo, escapeHtml, currentRoom, alias } = window.__campfire_utils__;
+
+  // TODO: Replace with your project values
   const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
   const SUPABASE_ANON = 'YOUR-ANON-KEY';
+
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
   const feedEl = document.querySelector('#feed');
   const feedMetaEl = document.querySelector('#feedMeta');
+  const textEl = document.querySelector('#text');
   const ttlEl = document.querySelector('#ttl');
   const singleFlameEl = document.querySelector('#singleFlame');
+  const imagePreview = document.querySelector('#imagePreview');
+  const imagePreviewWrap = document.querySelector('#imagePreviewWrap');
+  const sketchCanvas = document.querySelector('#sketch');
+  const sketchWrap = document.querySelector('#sketchWrap');
+  const postBtn = document.querySelector('#postBtn');
 
-  // Room helpers (reuse existing hash behavior)
-  function currentRoom(){ return (location.hash.replace('#','').trim() || 'local').toLowerCase(); }
+  // Show 'live' in the UI
+  feedMetaEl.textContent = `0 posts · room #${currentRoom()} · live`;
+
+  // Helpers
   async function ensureRoom(name){
-    await client.from('rooms').insert({ name }).eq('name', name).select().single().catch(()=>{});
+    await client.from('rooms').upsert({ name }, { onConflict: 'name' });
   }
 
-  // Override local storage functions
-  const localLoad = window.loadFeed, localSave = window.saveFeed; // keep refs just in case
-  window.loadFeed = async function(){
+  async function fetchPosts(){
     const nowIso = new Date().toISOString();
     const { data, error } = await client
       .from('posts')
@@ -423,25 +402,36 @@ create policy "Public delete expired" on posts for delete using (expires_at <= n
       .order('created_at', { ascending: false })
       .limit(12);
     if(error){ console.warn(error); return []; }
-    return data.map(row => ({
+    return (data||[]).map(row => ({
       id: row.id,
       alias: row.alias,
-      text: row.text||'',
-      image: row.image_url||null,
-      sketch: row.sketch_url||null,
+      text: row.text || '',
+      image: row.image_url || null,
+      sketch: row.sketch_url || null,
       createdAt: new Date(row.created_at).getTime(),
       expiresAt: new Date(row.expires_at).getTime()
     }));
-  };
-  window.saveFeed = function(_) { /* no-op with Supabase; writes happen on post */ };
+  }
 
-  // Intercept posting
-  const postBtn = document.querySelector('#postBtn');
-  const textEl = document.querySelector('#text');
-  const imagePreview = document.querySelector('#imagePreview');
-  const sketchCanvas = document.querySelector('#sketch');
-  const sketchWrap = document.querySelector('#sketchWrap');
-  const alias = JSON.parse(localStorage.getItem('campfire_alias_v1')||'null')||{emoji:'🐺',name:'wolf'};
+  function renderList(items){
+    feedEl.innerHTML='';
+    const count = items.length;
+    feedMetaEl.textContent = `${count} post${count!==1?'s':''} · room #${currentRoom()} · live`;
+    for(const it of items){
+      const el = document.createElement('div'); el.className='post card';
+      const ttlMins = Math.max(0, Math.round((it.expiresAt - Date.now())/60000));
+      el.innerHTML = `
+        <div class="post-head">
+          <div class="alias"><div class="avatar">${it.alias?.emoji||'🐺'}</div><b>${it.alias?.name||'wolf'}</b>
+            <span class="subtle">· ${timeAgo(it.createdAt)} · fades in ${ttlMins}m</span></div>
+        </div>
+        ${it.text? `<div>${escapeHtml(it.text).replace(/\n/g,'<br>')}</div>`:''}
+        ${it.sketch? `<img class="img-preview" alt="sketch" src="${it.sketch}"/>`:''}
+        ${it.image? `<img class="img-preview" alt="image" src="${it.image}"/>`:''}
+      `;
+      feedEl.appendChild(el);
+    }
+  }
 
   async function uploadDataUrl(path, dataUrl){
     const res = await fetch(dataUrl);
@@ -460,23 +450,26 @@ create policy "Public delete expired" on posts for delete using (expires_at <= n
     const text = (textEl.value||'').trim();
 
     let image_url = null, sketch_url = null;
-    const imgSrc = imagePreview?.src||'';
+    const imgSrc = imagePreview?.src || '';
     if(imgSrc && imgSrc.startsWith('data:')){
       image_url = await uploadDataUrl(`images/${currentRoom()}/${crypto.randomUUID()}.png`, imgSrc);
     }
     if(sketchWrap && sketchWrap.style.display!=='none'){
       const dataUrl = sketchCanvas.toDataURL('image/png');
-      // only upload if not blank-ish
       if(dataUrl && dataUrl.length > 1000){
         sketch_url = await uploadDataUrl(`sketch/${currentRoom()}/${crypto.randomUUID()}.png`, dataUrl);
       }
     }
 
+    if(!text && !image_url && !sketch_url){
+      alert('Write something, sketch, or add an image.');
+      return;
+    }
+
     if(singleFlameEl.checked){
-      // delete last post by this alias in this room (best-effort)
       const { data: last } = await client
         .from('posts')
-        .select('id, alias')
+        .select('id, alias, created_at')
         .eq('room', currentRoom())
         .order('created_at', { ascending:false })
         .limit(24);
@@ -487,50 +480,98 @@ create policy "Public delete expired" on posts for delete using (expires_at <= n
     const { error } = await client.from('posts').insert({
       room: currentRoom(),
       alias,
-      text: text||null,
+      text: text || null,
       image_url, sketch_url,
       expires_at: expiresAt
     });
-    if(error){ alert('Post failed.'); console.warn(error); }
+    if(error){ alert('Post failed.'); console.warn(error); return; }
+
+    // reset composer
     textEl.value='';
+    if(sketchWrap && sketchWrap.style.display!=='none'){
+      const ctx = sketchCanvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,sketchCanvas.width, sketchCanvas.height);
+    }
+    if(imagePreviewWrap){ imagePreviewWrap.style.display='none'; imagePreview.src=''; }
+
+    await refresh(); // instant feedback, realtime will also kick in
   }
 
-  // Replace click handler
+  async function refresh(){
+    const items = await fetchPosts();
+    renderList(items);
+  }
+
+  // Attach network handler
   postBtn.onclick = async (e)=>{ e.preventDefault(); await networkPost(); };
 
-  // Realtime: listen for new posts and rerender
-  function renderList(items){
-    feedEl.innerHTML='';
-    const count = items.length;
-    feedMetaEl.textContent = `${count} post${count!==1?'s':''} · room #${currentRoom()} · live`;
-    for(const it of items){
-      const el = document.createElement('div'); el.className='post card';
-      const ttlMins = Math.max(0, Math.round((it.expiresAt-Date.now())/60000));
-      el.innerHTML = `
-        <div class=post-head>
-          <div class=alias><div class=avatar>${it.alias.emoji||'🐺'}</div><b>${it.alias.name}</b>
-          <span class=subtle>· ${timeAgo(it.createdAt)} · fades in ${ttlMins}m</span></div>
-        </div>
-        ${it.text? `<div>${escapeHtml(it.text).replace(/\n/g,'<br>')}</div>`:''}
-
-        ${it.sketch? `<img class=img-preview alt=sketch src="${it.sketch}"/>`:''}
-        ${it.image? `<img class=img-preview alt=image src="${it.image}"/>`:''}
-      `;
-      feedEl.appendChild(el);
-    }
+  // Realtime subscription per-room
+  let channel = null;
+  async function subscribe(){
+    if(channel){ await client.removeChannel(channel); channel=null; }
+    channel = client.channel('realtime:posts')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `room=eq.${currentRoom()}` }, refresh)
+      .subscribe();
   }
 
-  async function refresh(){ const items = await window.loadFeed(); renderList(items); }
+  window.addEventListener('hashchange', async ()=>{ await refresh(); await subscribe(); });
+
+  // Initial load
   await refresh();
-
-  client.channel('realtime:posts')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `room=eq.${currentRoom()}` }, refresh)
-    .subscribe();
-
-  // Simple utilities reused from the main script
-  function timeAgo(ts){ const s=Math.floor((Date.now()-ts)/1000); if(s<60) return `${s}s ago`; const m=Math.floor(s/60); if(m<60) return `${m}m ago`; const h=Math.floor(m/60); if(h<24) return `${h}h ago`; const d=Math.floor(h/24); return `${d}d ago`; }
-  function escapeHtml(str){ return str.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m])); }
+  await subscribe();
 })();
 </script>
+
+<!-- =========================
+     Supabase DB/Storage schema (paste into SQL Editor)
+     =========================
+create extension if not exists pgcrypto;
+
+create table if not exists public.rooms (
+  id uuid primary key default gen_random_uuid(),
+  name text unique not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.posts (
+  id uuid primary key default gen_random_uuid(),
+  room text not null references public.rooms(name) on delete cascade,
+  alias jsonb not null,              -- { "emoji": "🐺", "name": "ember-123" }
+  text text,
+  image_url text,
+  sketch_url text,
+  created_at timestamptz default now(),
+  expires_at timestamptz not null
+);
+
+create index if not exists posts_expires_idx on public.posts(expires_at);
+create index if not exists posts_room_created_idx on public.posts(room, created_at desc);
+
+insert into public.rooms (name) values ('local'), ('studio'), ('woods'), ('lake')
+on conflict (name) do nothing;
+
+alter table public.rooms enable row level security;
+alter table public.posts enable row level security;
+
+drop policy if exists "Public read posts" on public.posts;
+create policy "Public read posts" on public.posts for select using (true);
+
+drop policy if exists "Public insert posts" on public.posts;
+create policy "Public insert posts" on public.posts for insert with check (true);
+
+drop policy if exists "Public delete expired" on public.posts;
+create policy "Public delete expired" on public.posts for delete using (expires_at <= now());
+
+-- Storage bucket: create a PUBLIC bucket named `campfire`
+-- Storage policies (RLS on storage.objects):
+drop policy if exists "Public read campfire" on storage.objects;
+create policy "Public read campfire" on storage.objects for select using (bucket_id = 'campfire');
+
+drop policy if exists "Public insert campfire" on storage.objects;
+create policy "Public insert campfire" on storage.objects for insert with check (bucket_id = 'campfire');
+
+-- Optional hourly prune:
+-- delete from public.posts where expires_at < now();
+-->
 </body>
 </html>
