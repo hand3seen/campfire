@@ -351,5 +351,186 @@
   setRoomUI();
 })();
 </script>
+  
+<!-- ===== Optional: Supabase wiring (live shared rooms) =====
+     To enable, include supabase-js via CDN and set USE_SUPABASE=true below,
+     and fill in your project URL + anon key. See the SQL schema in the block comment. -->
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script>
+/*
+SQL (run in Supabase SQL editor):
+--------------------------------------------------
+-- Rooms
+create table if not exists rooms (
+  id uuid primary key default gen_random_uuid(),
+  name text unique not null,
+  created_at timestamp with time zone default now()
+);
+-- Posts (ephemeral)
+create table if not exists posts (
+  id uuid primary key default gen_random_uuid(),
+  room text not null references rooms(name) on delete cascade,
+  alias jsonb not null,
+  text text,
+  image_url text,
+  sketch_url text,
+  created_at timestamp with time zone default now(),
+  expires_at timestamp with time zone not null
+);
+-- Helpful index for pruning
+create index if not exists posts_expires_idx on posts(expires_at);
+-- RLS: public can read; inserts allowed; deletes only own via a simple token (room_secret) optional
+alter table rooms enable row level security;
+alter table posts enable row level security;
+create policy "Public read" on posts for select using (true);
+create policy "Public insert" on posts for insert with check (true);
+create policy "Public delete expired" on posts for delete using (expires_at <= now());
+-- (For tighter control later, add per-room shared secrets or auth.)
+
+-- Edge Function (optional) to prune hourly:
+-- delete from posts where expires_at < now();
+--------------------------------------------------
+*/
+
+(async function(){
+  const USE_SUPABASE = new URLSearchParams(location.search).has('net'); // add ?net to URL to enable
+  if(!USE_SUPABASE) return; // keep the local-only behavior unless ?net present
+
+  const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
+  const SUPABASE_ANON = 'YOUR-ANON-KEY';
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  const feedEl = document.querySelector('#feed');
+  const feedMetaEl = document.querySelector('#feedMeta');
+  const ttlEl = document.querySelector('#ttl');
+  const singleFlameEl = document.querySelector('#singleFlame');
+
+  // Room helpers (reuse existing hash behavior)
+  function currentRoom(){ return (location.hash.replace('#','').trim() || 'local').toLowerCase(); }
+  async function ensureRoom(name){
+    await client.from('rooms').insert({ name }).eq('name', name).select().single().catch(()=>{});
+  }
+
+  // Override local storage functions
+  const localLoad = window.loadFeed, localSave = window.saveFeed; // keep refs just in case
+  window.loadFeed = async function(){
+    const nowIso = new Date().toISOString();
+    const { data, error } = await client
+      .from('posts')
+      .select('*')
+      .eq('room', currentRoom())
+      .gt('expires_at', nowIso)
+      .order('created_at', { ascending: false })
+      .limit(12);
+    if(error){ console.warn(error); return []; }
+    return data.map(row => ({
+      id: row.id,
+      alias: row.alias,
+      text: row.text||'',
+      image: row.image_url||null,
+      sketch: row.sketch_url||null,
+      createdAt: new Date(row.created_at).getTime(),
+      expiresAt: new Date(row.expires_at).getTime()
+    }));
+  };
+  window.saveFeed = function(_) { /* no-op with Supabase; writes happen on post */ };
+
+  // Intercept posting
+  const postBtn = document.querySelector('#postBtn');
+  const textEl = document.querySelector('#text');
+  const imagePreview = document.querySelector('#imagePreview');
+  const sketchCanvas = document.querySelector('#sketch');
+  const sketchWrap = document.querySelector('#sketchWrap');
+  const alias = JSON.parse(localStorage.getItem('campfire_alias_v1')||'null')||{emoji:'🐺',name:'wolf'};
+
+  async function uploadDataUrl(path, dataUrl){
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const { data, error } = await client.storage.from('campfire').upload(path, blob, { upsert: true, contentType: blob.type });
+    if(error){ console.warn(error); return null; }
+    const { data: pub } = client.storage.from('campfire').getPublicUrl(path);
+    return pub.publicUrl;
+  }
+
+  async function networkPost(){
+    await ensureRoom(currentRoom());
+    const now = Date.now();
+    const ttlMs = parseInt(ttlEl.value,10)*1000;
+    const expiresAt = new Date(now + ttlMs).toISOString();
+    const text = (textEl.value||'').trim();
+
+    let image_url = null, sketch_url = null;
+    const imgSrc = imagePreview?.src||'';
+    if(imgSrc && imgSrc.startsWith('data:')){
+      image_url = await uploadDataUrl(`images/${currentRoom()}/${crypto.randomUUID()}.png`, imgSrc);
+    }
+    if(sketchWrap && sketchWrap.style.display!=='none'){
+      const dataUrl = sketchCanvas.toDataURL('image/png');
+      // only upload if not blank-ish
+      if(dataUrl && dataUrl.length > 1000){
+        sketch_url = await uploadDataUrl(`sketch/${currentRoom()}/${crypto.randomUUID()}.png`, dataUrl);
+      }
+    }
+
+    if(singleFlameEl.checked){
+      // delete last post by this alias in this room (best-effort)
+      const { data: last } = await client
+        .from('posts')
+        .select('id, alias')
+        .eq('room', currentRoom())
+        .order('created_at', { ascending:false })
+        .limit(24);
+      const mine = (last||[]).find(r=>r.alias?.name===alias.name);
+      if(mine){ await client.from('posts').delete().eq('id', mine.id); }
+    }
+
+    const { error } = await client.from('posts').insert({
+      room: currentRoom(),
+      alias,
+      text: text||null,
+      image_url, sketch_url,
+      expires_at: expiresAt
+    });
+    if(error){ alert('Post failed.'); console.warn(error); }
+    textEl.value='';
+  }
+
+  // Replace click handler
+  postBtn.onclick = async (e)=>{ e.preventDefault(); await networkPost(); };
+
+  // Realtime: listen for new posts and rerender
+  function renderList(items){
+    feedEl.innerHTML='';
+    const count = items.length;
+    feedMetaEl.textContent = `${count} post${count!==1?'s':''} · room #${currentRoom()} · live`;
+    for(const it of items){
+      const el = document.createElement('div'); el.className='post card';
+      const ttlMins = Math.max(0, Math.round((it.expiresAt-Date.now())/60000));
+      el.innerHTML = `
+        <div class=post-head>
+          <div class=alias><div class=avatar>${it.alias.emoji||'🐺'}</div><b>${it.alias.name}</b>
+          <span class=subtle>· ${timeAgo(it.createdAt)} · fades in ${ttlMins}m</span></div>
+        </div>
+        ${it.text? `<div>${escapeHtml(it.text).replace(/
+/g,'<br>')}</div>`:''}
+        ${it.sketch? `<img class=img-preview alt=sketch src="${it.sketch}"/>`:''}
+        ${it.image? `<img class=img-preview alt=image src="${it.image}"/>`:''}
+      `;
+      feedEl.appendChild(el);
+    }
+  }
+
+  async function refresh(){ const items = await window.loadFeed(); renderList(items); }
+  await refresh();
+
+  client.channel('realtime:posts')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `room=eq.${currentRoom()}` }, refresh)
+    .subscribe();
+
+  // Simple utilities reused from the main script
+  function timeAgo(ts){ const s=Math.floor((Date.now()-ts)/1000); if(s<60) return `${s}s ago`; const m=Math.floor(s/60); if(m<60) return `${m}m ago`; const h=Math.floor(m/60); if(h<24) return `${h}h ago`; const d=Math.floor(h/24); return `${d}d ago`; }
+  function escapeHtml(str){ return str.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m])); }
+})();
+</script>
 </body>
 </html>
