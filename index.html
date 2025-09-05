@@ -511,8 +511,8 @@ create policy "Public delete expired" on posts for delete using (expires_at <= n
           <div class=alias><div class=avatar>${it.alias.emoji||'🐺'}</div><b>${it.alias.name}</b>
           <span class=subtle>· ${timeAgo(it.createdAt)} · fades in ${ttlMins}m</span></div>
         </div>
-        ${it.text? `<div>${escapeHtml(it.text).replace(/
-/g,'<br>')}</div>`:''}
+        ${it.text? `<div>${escapeHtml(it.text).replace(/\n/g,'<br>')}</div>`:''}
+
         ${it.sketch? `<img class=img-preview alt=sketch src="${it.sketch}"/>`:''}
         ${it.image? `<img class=img-preview alt=image src="${it.image}"/>`:''}
       `;
