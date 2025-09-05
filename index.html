@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Headmosh Campfire — Anti‑Facebook</title>
+  <meta name="description" content="A tiny, ephemeral, no‑likes social sketchbook. Posts fade. No followers. Just scraps." />
+  <style>
+    :root{
+      --ink:#111; --muted:#666; --paper:#f7f5f1; --bg:#faf9f6; --accent:#0e9a6c;
+      --card:#ffffff; --border:#e7e3dc; --danger:#b8322a;
+    }
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Ubuntu,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+    .wrap{max-width:980px;margin:0 auto;padding:24px}
+    header{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .logo{font-weight:800;font-size:20px;letter-spacing:.4px}
+    .pill{border:1px solid var(--border);background:var(--card);padding:6px 10px;border-radius:999px;color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 0 rgba(0,0,0,.02);padding:16px}
+    .grid{display:grid;gap:16px}
+    .grid.cols{grid-template-columns:1.2fr .8fr}
+    @media (max-width: 900px){.grid.cols{grid-template-columns:1fr}}
+    textarea{width:100%;min-height:96px;border-radius:12px;border:1px solid var(--border);padding:12px;font:inherit;background:#fff;resize:vertical}
+    button{appearance:none;border:1px solid var(--border);background:#fff;border-radius:12px;padding:10px 14px;cursor:pointer}
+    button.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+    button.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .row{display:flex;gap:10px;align-items:center}
+    .subtle{color:var(--muted);font-size:14px}
+    .feed{display:grid;gap:12px}
+    .post{display:grid;gap:10px}
+    .post-head{display:flex;align-items:center;gap:8px;justify-content:space-between}
+    .alias{display:inline-flex;align-items:center;gap:8px}
+    .alias .avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--border);background:#fff}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{font-size:12px;border:1px dashed var(--border);border-radius:999px;padding:4px 8px;color:var(--muted)}
+    canvas.sketch{width:100%;height:240px;border:1px dashed var(--border);border-radius:12px;background:#fff}
+    .img-preview{max-width:100%;border-radius:12px;border:1px solid var(--border)}
+    .prompt{font-weight:600}
+    .fade{opacity:.6}
+    .footer{margin-top:28px;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">🪵🔥 Headmosh Campfire <span class="subtle">— anti‑Facebook</span></div>
+      <div class="pill" id="identityPill">🐺 <span id="alias">wolf‑guest</span> · <span id="room">local</span></div>
+      <div class="pill subtle">No likes · No followers · Posts fade</div>
+    </header>
+
+    <div class="grid cols" style="margin-top:18px">
+      <!-- Composer -->
+      <section class="card" aria-label="composer">
+        <div class="row" style="justify-content:space-between">
+          <div class="prompt" id="prompt">What did today sound like?</div>
+          <button id="newPromptBtn" title="New prompt">🔀 Prompt</button>
+        </div>
+        <textarea id="text" placeholder="Drop a scrap: words, fragments, confessions, tiny poems…"></textarea>
+
+        <div class="toolbar" style="margin-top:8px">
+          <input type="file" id="file" accept="image/*" style="display:none" />
+          <button id="addImageBtn">🖼️ Add image</button>
+          <button id="sketchToggle">✏️ Sketch</button>
+          <span class="subtle">Ephemeral: <select id="ttl">
+            <option value="3600">1 hour</option>
+            <option value="21600">6 hours</option>
+            <option value="86400" selected>24 hours</option>
+            <option value="172800">48 hours</option>
+          </select></span>
+          <label class="subtle" style="display:inline-flex;align-items:center;gap:6px">
+            <input type="checkbox" id="singleFlame" /> single‑flame (replace my last post)
+          </label>
+          <span class="subtle">Max feed size: <span id="maxSizeLabel">12</span></span>
+        </div>
+
+        <div id="sketchWrap" class="fade" style="margin-top:10px;display:none">
+          <canvas id="sketch" class="sketch"></canvas>
+          <div class="toolbar" style="margin-top:6px">
+            <button id="clearSketch">Clear sketch</button>
+            <label class="subtle">Line: <input type="range" id="lineWidth" min="1" max="18" value="3"/></label>
+          </div>
+        </div>
+
+        <div id="imagePreviewWrap" style="display:none;margin-top:10px">
+          <img id="imagePreview" class="img-preview" alt="image preview" />
+          <div class="toolbar" style="margin-top:6px"><button id="removeImage" class="danger">Remove image</button></div>
+        </div>
+
+        <div class="row" style="justify-content:space-between;margin-top:10px">
+          <div class="subtle">Tip: paste images (Ctrl/Cmd+V) straight into the box.</div>
+          <button id="postBtn" class="primary">Post to campfire</button>
+        </div>
+      </section>
+
+      <!-- Right rail: Mode / About -->
+      <aside class="card" aria-label="about">
+        <div style="display:grid;gap:10px">
+          <div class="prompt">What is this?</div>
+          <div class="subtle">A tiny, ephemeral feed. No likes, no followers, no counters. Posts fade after a time‑to‑live. Be honest, be weird, move on.</div>
+          <div class="chips">
+            <span class="chip">ephemeral</span>
+            <span class="chip">small circle</span>
+            <span class="chip">rotating alias</span>
+            <span class="chip">no metrics</span>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--border)">
+          <div class="prompt">Room</div>
+          <div class="subtle">Use <b>#room-name</b> in the URL to switch rooms (local demo only). Example: <code>#studio</code></div>
+          <div class="toolbar">
+            <button id="randomRoom">Shuffle room</button>
+            <button id="clearFeed" class="danger">Burn it all</button>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--border)">
+          <div class="prompt">Export</div>
+          <div class="subtle">Export your current room feed as JSON (to archive or share) — still no likes.</div>
+          <button id="exportBtn">Export JSON</button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Feed -->
+    <section style="margin-top:18px" class="card" aria-label="feed">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <div class="prompt">Campfire feed</div>
+        <div class="subtle" id="feedMeta"></div>
+      </div>
+      <div class="feed" id="feed"></div>
+    </section>
+
+    <div class="footer">Made with 🐺 + 🐱 · No tracking, local‑only demo. Bring your own backend later (Supabase/Firebase/WebRTC) if you want it shared beyond your device.</div>
+  </div>
+
+<script>
+(function(){
+  // ------- Utilities -------
+  const $ = sel => document.querySelector(sel);
+  const aliasEl = $('#alias');
+  const roomEl = $('#room');
+  const feedEl = $('#feed');
+  const feedMetaEl = $('#feedMeta');
+  const textEl = $('#text');
+  const ttlEl = $('#ttl');
+  const singleFlameEl = $('#singleFlame');
+  const promptEl = $('#prompt');
+  const sketchWrap = $('#sketchWrap');
+  const sketchCanvas = $('#sketch');
+  const lineWidthEl = $('#lineWidth');
+  const imagePreviewWrap = $('#imagePreviewWrap');
+  const imagePreview = $('#imagePreview');
+  const fileInput = $('#file');
+
+  const MAX_FEED = 12; // small circle cap (per room)
+  $('#maxSizeLabel').textContent = MAX_FEED;
+
+  const PROMPTS = [
+    'What did today sound like?',
+    'Draw your mood in 3 lines.',
+    'One secret you can say out loud.',
+    'A tiny victory from today.',
+    'Who were you this morning?',
+    'A fragment you almost forgot.',
+    'What would you compost from this week?',
+    'Describe the sky in 7 words.',
+    'Permission to be unfinished: prove it.',
+    'How would a wolf solve this?'
+  ];
+
+  function pickPrompt(){ return PROMPTS[Math.floor(Math.random()*PROMPTS.length)]; }
+  $('#newPromptBtn').onclick = ()=>{ promptEl.textContent = pickPrompt(); };
+
+  function randomAlias(){
+    const emojis = ['🐺','🐱','🦊','🦉','🦬','🦫','🦔','🦙','🦜','🦄'];
+    const names = ['ember','zapette','grimbo','loam','static','hush','spill','moss','wisp','clatter'];
+    const e = emojis[Math.floor(Math.random()*emojis.length)];
+    const n = names[Math.floor(Math.random()*names.length)];
+    return {emoji:e, name:`${n}-${Math.floor(Math.random()*999)}`};
+  }
+
+  // Rotate alias daily (local)
+  const ALIAS_KEY = 'campfire_alias_v1';
+  function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+  let alias = JSON.parse(localStorage.getItem(ALIAS_KEY) || 'null');
+  if(!alias || alias.day !== todayKey()){
+    const a = randomAlias();
+    alias = { day: todayKey(), emoji: a.emoji, name: a.name };
+    localStorage.setItem(ALIAS_KEY, JSON.stringify(alias));
+  }
+  aliasEl.textContent = alias.name;
+  $('#identityPill').firstChild.textContent = alias.emoji + ' ';
+
+  // Rooms via URL hash
+  function currentRoom(){ return (location.hash.replace('#','').trim() || 'local').toLowerCase(); }
+  function storageKey(){ return `campfire_room_${currentRoom()}`; }
+  function loadFeed(){ try{return JSON.parse(sessionStorage.getItem(storageKey())||'[]')}catch{return[]} }
+  function saveFeed(items){ sessionStorage.setItem(storageKey(), JSON.stringify(items)); }
+
+  function setRoomUI(){ roomEl.textContent = currentRoom(); render(); }
+  window.addEventListener('hashchange', setRoomUI);
+  $('#randomRoom').onclick = () => {
+    const r = ['studio','kitchen','bus','woods','gym','class','lake','garage','porch'];
+    location.hash = r[Math.floor(Math.random()*r.length)];
+  };
+
+  // ------- Sketch tool -------
+  let drawing=false, ctx, scale;
+  function resizeCanvas(){
+    const rect = sketchCanvas.getBoundingClientRect();
+    sketchCanvas.width = Math.floor(rect.width*2);
+    sketchCanvas.height = Math.floor(rect.height*2);
+    ctx = sketchCanvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = parseFloat(lineWidthEl.value)*2;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0,0,sketchCanvas.width, sketchCanvas.height);
+  }
+  function startDraw(x,y){ drawing=true; ctx.beginPath(); ctx.moveTo(x,y); }
+  function drawTo(x,y){ if(!drawing) return; ctx.lineTo(x,y); ctx.stroke(); }
+  function endDraw(){ drawing=false; }
+  function toDataURL(){ return sketchWrap.style.display==='none' ? null : sketchCanvas.toDataURL('image/png'); }
+
+  function canvasXY(e){
+    const r = sketchCanvas.getBoundingClientRect();
+    const x = (e.touches? e.touches[0].clientX : e.clientX) - r.left;
+    const y = (e.touches? e.touches[0].clientY : e.clientY) - r.top;
+    // scale because we doubled pixel density
+    return {x:x*2, y:y*2};
+  }
+
+  $('#sketchToggle').onclick = ()=>{
+    const on = sketchWrap.style.display==='none';
+    sketchWrap.style.display = on? 'block':'none';
+    sketchWrap.classList.toggle('fade', !on);
+    if(on){ resizeCanvas(); }
+  };
+  window.addEventListener('resize', ()=>{ if(sketchWrap.style.display!=='none') resizeCanvas(); });
+  lineWidthEl.addEventListener('input', ()=>{ if(ctx){ ctx.lineWidth = parseFloat(lineWidthEl.value)*2; }});
+  sketchCanvas.addEventListener('mousedown', e=>{ const p=canvasXY(e); startDraw(p.x,p.y); });
+  sketchCanvas.addEventListener('mousemove', e=>{ const p=canvasXY(e); drawTo(p.x,p.y); });
+  window.addEventListener('mouseup', endDraw);
+  sketchCanvas.addEventListener('touchstart', e=>{ const p=canvasXY(e); startDraw(p.x,p.y); });
+  sketchCanvas.addEventListener('touchmove', e=>{ const p=canvasXY(e); drawTo(p.x,p.y); e.preventDefault(); }, {passive:false});
+  sketchCanvas.addEventListener('touchend', endDraw);
+  $('#clearSketch').onclick = ()=>{ resizeCanvas(); };
+
+  // ------- Image paste/upload -------
+  let imageDataUrl = null;
+  $('#addImageBtn').onclick = ()=> fileInput.click();
+  fileInput.onchange = async (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const url = await fileToDataURL(file); setImage(url);
+  };
+  document.addEventListener('paste', async (e)=>{
+    const item = [...(e.clipboardData?.items||[])].find(i=>i.type.startsWith('image/'));
+    if(item){ const f = item.getAsFile(); const url = await fileToDataURL(f); setImage(url); }
+  });
+  function setImage(url){ imageDataUrl = url; imagePreview.src = url; imagePreviewWrap.style.display='block'; }
+  $('#removeImage').onclick = ()=>{ imageDataUrl=null; imagePreviewWrap.style.display='none'; imagePreview.src=''; };
+  function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(file); }); }
+
+  // ------- Posting -------
+  $('#postBtn').onclick = ()=>{
+    const now = Date.now();
+    const ttl = parseInt(ttlEl.value,10)*1000;
+    const expiresAt = now + ttl;
+    const text = (textEl.value||'').trim();
+    const sketchUrl = toDataURL();
+    if(!text && !sketchUrl && !imageDataUrl){ alert('Write something, sketch, or add an image.'); return; }
+
+    let items = loadFeed().filter(i=>i.expiresAt>now);
+    // single flame: remove last post by this alias
+    if(singleFlameEl.checked){ items = items.filter(i=>i.alias.name!==alias.name); }
+
+    const item = {
+      id: Math.random().toString(36).slice(2),
+      alias, text, image:imageDataUrl, sketch: sketchUrl, createdAt: now, expiresAt
+    };
+    items.unshift(item);
+    // cap feed size
+    if(items.length>MAX_FEED) items = items.slice(0,MAX_FEED);
+    saveFeed(items);
+
+    // reset composer
+    textEl.value='';
+    if(sketchWrap.style.display!=='none') resizeCanvas();
+    $('#removeImage').click();
+
+    render();
+  };
+
+  $('#clearFeed').onclick = ()=>{ if(confirm('Burn the current room feed?')){ saveFeed([]); render(); } };
+  $('#exportBtn').onclick = ()=>{
+    const data = JSON.stringify(loadFeed(), null, 2);
+    const blob = new Blob([data], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`campfire-${currentRoom()}.json`; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+
+  // ------- Render -------
+  function render(){
+    const now = Date.now();
+    let items = loadFeed().filter(i=>i.expiresAt>now);
+    saveFeed(items); // prune
+    feedEl.innerHTML='';
+    const count = items.length;
+    feedMetaEl.textContent = `${count} post${count!==1?'s':''} · room #${currentRoom()}`;
+
+    for(const it of items){
+      const el = document.createElement('div'); el.className='post card';
+      const ttlMins = Math.max(0, Math.round((it.expiresAt-now)/60000));
+      el.innerHTML = `
+        <div class="post-head">
+          <div class="alias"><div class="avatar">${it.alias.emoji||'🐺'}</div><b>${it.alias.name}</b>
+            <span class="subtle">· ${timeAgo(it.createdAt)} · fades in ${ttlMins}m</span></div>
+          <button data-id="${it.id}" class="danger">Erase</button>
+        </div>
+        ${it.text? `<div>${escapeHtml(it.text).replace(/\n/g,'<br>')}</div>`:''}
+        ${it.sketch? `<img class="img-preview" alt="sketch" src="${it.sketch}"/>`:''}
+        ${it.image? `<img class="img-preview" alt="image" src="${it.image}"/>`:''}
+      `;
+      el.querySelector('button.danger').onclick = ()=>{ erase(it.id); };
+      feedEl.appendChild(el);
+    }
+  }
+
+  function erase(id){
+    let items = loadFeed();
+    items = items.filter(i=>i.id!==id);
+    saveFeed(items); render();
+  }
+
+  function timeAgo(ts){
+    const s = Math.floor((Date.now()-ts)/1000);
+    if(s<60) return `${s}s ago`;
+    const m = Math.floor(s/60); if(m<60) return `${m}m ago`;
+    const h = Math.floor(m/60); if(h<24) return `${h}h ago`;
+    const d = Math.floor(h/24); return `${d}d ago`;
+  }
+  function escapeHtml(str){
+    return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+  }
+
+  // tick: update fading labels, prune expired
+  setInterval(render, 30000);
+
+  // init
+  promptEl.textContent = pickPrompt();
+  setRoomUI();
+})();
+</script>
+</body>
+</html>
