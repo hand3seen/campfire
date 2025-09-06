@@ -434,15 +434,32 @@
   }
 
   async function uploadDataUrl(path, dataUrl){
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const { data, error } = await client.storage.from('campfire').upload(path, blob, { upsert: true, contentType: blob.type });
-    if(error){ console.warn(error); return null; }
-    const { data: pub } = client.storage.from('campfire').getPublicUrl(path);
-    return pub.publicUrl;
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  if (blob.size > 2_000_000) { // ~2 MB
+    alert('Image is a bit large. Try a smaller one.');
+    return null;
   }
+  const { data, error } = await client.storage.from('campfire')
+    .upload(path, blob, { upsert: true, contentType: blob.type });
+  if (error){ console.warn(error); return null; }
+  const { data: pub } = client.storage.from('campfire').getPublicUrl(path);
+  return pub.publicUrl;
+}
+
+  }
+// simple client cooldown
+const COOLDOWN_MS = 10_000;
+let lastPostAt = 0;
 
   async function networkPost(){
+const nowNow = Date.now();
+if (nowNow - lastPostAt < COOLDOWN_MS) {
+  alert('Take a breath… try again in a few seconds.');
+  return;
+}
+lastPostAt = nowNow;
+
     await ensureRoom(currentRoom());
     const now = Date.now();
     const ttlMs = parseInt(ttlEl.value,10)*1000;
@@ -519,6 +536,9 @@
   // Initial load
   await refresh();
   await subscribe();
+// keep TTL countdowns and expirations fresh
+setInterval(refresh, 60000);
+
 })();
 </script>
 
